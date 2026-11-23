@@ -1,7 +1,15 @@
-import { Avatar, Box, CircularProgress } from "@mui/material";
+import {
+  Avatar,
+  Box,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+} from "@mui/material";
 import Footer from "../component/Footer";
 import Navbar from "../component/Navbar";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import { useFormik } from "formik";
@@ -12,26 +20,108 @@ import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-const validationSchema = yup.object().shape({
-  profilePhoto: yup.string().required("Profile photo is required"),
-  role: yup.string().required("Role is required"),
-  resume: yup.string().when("role", (role, schema) => {
+const RESUME_FILE_TYPE_ERROR =
+  "Only PDF or Word documents (.pdf, .doc, .docx) are allowed.";
+const PROFILE_PHOTO_REQUIRED_ERROR = "Profile photo is required.";
+const PROFILE_PHOTO_SIZE_ERROR = "Profile photo must be 20 KB or smaller.";
+const PROFILE_PHOTO_TYPE_ERROR = "Only JPG, JPEG, and PNG images are allowed.";
+const MAX_PROFILE_PHOTO_SIZE = 20 * 1024;
+const PROFILE_PHOTO_EXTENSIONS = ["jpg", "jpeg", "png"];
+const PROFILE_PHOTO_MIME_TYPES = ["image/jpeg", "image/png"];
+
+const isSupportedProfilePhoto = (file) => {
+  const extension = file.name?.split(".").pop()?.toLowerCase();
+  return (
+    PROFILE_PHOTO_EXTENSIONS.includes(extension) &&
+    (!file.type || PROFILE_PHOTO_MIME_TYPES.includes(file.type.toLowerCase()))
+  );
+};
+
+export const validationSchema = yup.object().shape({
+  profilePhoto: yup
+    .mixed()
+    .test(
+      "profile-photo-required",
+      PROFILE_PHOTO_REQUIRED_ERROR,
+      (value) =>
+        typeof value === "string" ? Boolean(value.trim()) : Boolean(value),
+    )
+    .test(
+      "profile-photo-type",
+      PROFILE_PHOTO_TYPE_ERROR,
+      (value) =>
+        !value ||
+        typeof value === "string" ||
+        isSupportedProfilePhoto(value),
+    )
+    .test(
+      "profile-photo-size",
+      PROFILE_PHOTO_SIZE_ERROR,
+      (value) =>
+        !value ||
+        typeof value === "string" ||
+        value.size <= MAX_PROFILE_PHOTO_SIZE,
+    ),
+  role: yup
+    .string()
+    .test("not-blank", "Role is required", (value) =>
+      Boolean(value?.trim()),
+    )
+    .required("Role is required"),
+  resume: yup.string().when("role", ([role], schema) => {
     return role === "0"
-      ? schema.required("Resume is required")
+      ? schema
+          .test("not-blank", "Resume is required", (value) =>
+            Boolean(value?.trim()),
+          )
+          .required("Resume is required")
       : schema;
   }),
   firstName: yup
     .string()
     .min(3, "First Name should be of minimum 3 characters length")
+    .test("not-blank", "First Name is required", (value) =>
+      Boolean(value?.trim()),
+    )
+    .matches(
+      /^[\p{L}\p{M}][\p{L}\p{M}' -]*$/u,
+      "First Name can contain only letters, spaces, apostrophes, and hyphens",
+    )
     .required("First Name is required"),
   lastName: yup
     .string()
     .min(3, "Last Name should be of minimum 3 characters length")
+    .test("not-blank", "Last Name is required", (value) =>
+      Boolean(value?.trim()),
+    )
+    .matches(
+      /^[\p{L}\p{M}][\p{L}\p{M}' -]*$/u,
+      "Last Name can contain only letters, spaces, apostrophes, and hyphens",
+    )
     .required("Last Name is required"),
   email: yup
     .string()
     .email("Enter a valid email")
+    .test(
+      "email-username-start",
+      "Email username must start with a letter",
+      (value) => !value || /^[A-Za-z]/.test(value),
+    )
     .required("Email is required"),
+  password: yup
+    .string()
+    .test("not-blank", "Password is required", (value) =>
+      Boolean(value?.trim()),
+    )
+    .min(8, "Password should be at least 8 characters")
+    .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .matches(/[a-z]/, "Password must contain at least one lowercase letter")
+    .matches(/[0-9]/, "Password must contain at least one number")
+    .matches(
+      /[^A-Za-z0-9\s]/,
+      "Password must contain at least one special character",
+    )
+    .required("Password is required"),
 });
 
 const Register = () => {
@@ -42,6 +132,8 @@ const Register = () => {
   const [resumeLoading, setResumeLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [resumeTypeError, setResumeTypeError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const formik = useFormik({
     initialValues: {
@@ -54,12 +146,20 @@ const Register = () => {
       role: "",
     },
     validationSchema: validationSchema,
-    onSubmit: (values, actions) => {
+    onSubmit: async (values, actions) => {
+      if (resumeTypeError) {
+        return;
+      }
+
       const finalValues = { ...values };
 
-      dispatch(userSignUpAction(finalValues));
-      navigate("/login");
-      actions.resetForm();
+      const result = await dispatch(userSignUpAction(finalValues));
+      if (result?.success) {
+        actions.resetForm();
+        navigate(
+          `/verify-email?email=${encodeURIComponent(result.email || values.email)}`,
+        );
+      }
     },
   });
 
@@ -82,7 +182,7 @@ const Register = () => {
           "Content-Type": "multipart/form-data",
         },
       });
-      return data.url;
+      return data;
     } catch (err) {
       console.error(err);
       return null;
@@ -92,17 +192,39 @@ const Register = () => {
   const photoupload = async (event) => {
     const file = event.target.files[0];
     if (!file) {
-      alert("Please upload an image first!");
+      return;
+    }
+
+    formik.setFieldTouched("profilePhoto", true, false);
+    formik.setFieldValue("profilePhoto", file, false);
+    setImages(null);
+
+    if (!isSupportedProfilePhoto(file)) {
+      formik.setFieldValue("profilePhoto", "", false);
+      formik.setFieldError("profilePhoto", PROFILE_PHOTO_TYPE_ERROR);
+      return;
+    }
+    if (file.size > MAX_PROFILE_PHOTO_SIZE) {
+      formik.setFieldValue("profilePhoto", "", false);
+      formik.setFieldError("profilePhoto", PROFILE_PHOTO_SIZE_ERROR);
       return;
     }
 
     setProfileLoading(true);
-    const url = await uploadFileToServer(file);
-    if (url) {
-      formik.setFieldValue("profilePhoto", url);
-      setImages(url);
+    setIsUploading(true);
+    const upload = await uploadFileToServer(file);
+    if (upload?.url) {
+      formik.setFieldValue("profilePhoto", upload.url);
+      setImages(upload.url);
+    } else {
+      formik.setFieldValue("profilePhoto", "", false);
+      formik.setFieldError(
+        "profilePhoto",
+        "Profile photo upload failed. Start the backend and try again.",
+      );
     }
     setProfileLoading(false);
+    setIsUploading(false);
   };
 
   const resumeUpload = async (event) => {
@@ -112,12 +234,30 @@ const Register = () => {
       return;
     }
 
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["pdf", "doc", "docx"].includes(extension)) {
+      setResumeTypeError(RESUME_FILE_TYPE_ERROR);
+      formik.setFieldTouched("resume", true, false);
+      formik.setFieldValue("resume", "", false);
+      formik.setFieldError("resume", RESUME_FILE_TYPE_ERROR);
+      return;
+    }
+
+    setResumeTypeError("");
+    formik.setFieldValue("resume", "", false);
     setResumeLoading(true);
-    const url = await uploadFileToServer(file);
-    if (url) {
-      formik.setFieldValue("resume", url);
+    setIsUploading(true);
+    const upload = await uploadFileToServer(file);
+    if (upload?.url) {
+      formik.setFieldValue("resume", upload.url);
+    } else {
+      formik.setFieldError(
+        "resume",
+        "Resume upload failed. Start the backend and try again.",
+      );
     }
     setResumeLoading(false);
+    setIsUploading(false);
   };
 
   return (
@@ -125,13 +265,14 @@ const Register = () => {
       <Navbar />
       <Box
         sx={{
-          height: "81vh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           bgcolor: "primary.white",
           flexDirection: "column",
           minHeight: "84vh",
+          py: { xs: 2, sm: 3 },
+          boxSizing: "border-box",
         }}
       >
         <Box
@@ -161,7 +302,6 @@ const Register = () => {
                   value="0"
                   checked={role === "0"}
                   onChange={handleRoleChange}
-                  required
                 />
                 User
                 <input
@@ -170,7 +310,6 @@ const Register = () => {
                   value="1"
                   checked={role === "1"}
                   onChange={handleRoleChange}
-                  required
                 />
                 Recruiter
                 {formik.touched.role && formik.errors.role && (
@@ -182,7 +321,7 @@ const Register = () => {
             </div>
             <TextField
               sx={{
-                mb: 3,
+                mb: { xs: 1.25, sm: 1.5 },
                 "& .MuiInputBase-root": {
                   color: "text.secondary",
                 },
@@ -193,6 +332,7 @@ const Register = () => {
               label="profilePhoto"
               name="profilePhoto"
               type="file"
+              inputProps={{ accept: ".jpg,.jpeg,.png,image/jpeg,image/png" }}
               InputLabelProps={{
                 shrink: true,
               }}
@@ -209,7 +349,7 @@ const Register = () => {
             />
             <TextField
               sx={{
-                mb: 3,
+                mb: { xs: 1.25, sm: 1.5 },
                 "& .MuiInputBase-root": {
                   color: "text.secondary",
                 },
@@ -233,7 +373,7 @@ const Register = () => {
             />
             <TextField
               sx={{
-                mb: 3,
+                mb: { xs: 1.25, sm: 1.5 },
                 "& .MuiInputBase-root": {
                   color: "text.secondary",
                 },
@@ -255,7 +395,7 @@ const Register = () => {
             />
             <TextField
               sx={{
-                mb: 3,
+                mb: { xs: 1.25, sm: 1.5 },
                 "& .MuiInputBase-root": {
                   color: "text.secondary",
                 },
@@ -277,7 +417,7 @@ const Register = () => {
             />
             <TextField
               sx={{
-                mb: 3,
+                mb: { xs: 1.25, sm: 1.5 },
                 "& .MuiInputBase-root": {
                   color: "text.secondary",
                 },
@@ -287,9 +427,24 @@ const Register = () => {
               id="password"
               name="password"
               label="Password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               InputLabelProps={{
                 shrink: true,
+              }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
+                      edge="end"
+                      onClick={() => setShowPassword((visible) => !visible)}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      {showPassword ? <VisibilityIcon /> : <VisibilityOffIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
               placeholder="Password"
               value={formik.values.password}
@@ -302,7 +457,7 @@ const Register = () => {
               <>
                 <TextField
                   sx={{
-                    mb: 3,
+                    mb: { xs: 1.25, sm: 1.5 },
                     "& .MuiInputBase-root": {
                       color: "text.secondary",
                     },
@@ -313,20 +468,28 @@ const Register = () => {
                   name="resume"
                   label="Resume"
                   type="file"
+                  inputProps={{ accept: ".pdf,.doc,.docx" }}
                   InputLabelProps={{
                     shrink: true,
                   }}
                   placeholder="Resume"
                   onChange={resumeUpload}
                   onBlur={formik.handleBlur}
-                  error={formik.touched.resume && Boolean(formik.errors.resume)}
-                  helperText={formik.touched.resume && formik.errors.resume}
+                  error={
+                    Boolean(resumeTypeError) ||
+                    (formik.touched.resume && Boolean(formik.errors.resume))
+                  }
+                  helperText={
+                    resumeTypeError ||
+                    (formik.touched.resume && formik.errors.resume)
+                  }
                 />
                 {resumeLoading && <CircularProgress />}{" "}
               </>
             )}
             <Button
               type="submit"
+              disabled={isUploading || profileLoading || resumeLoading}
               variant="contained"
               sx={{
                 color: "white",

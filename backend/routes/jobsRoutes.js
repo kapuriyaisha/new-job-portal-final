@@ -1,18 +1,42 @@
 const express = require("express");
 const router = express.Router();
-const { isAuthenticated, isAdmin } = require("../middleware/auth");
+const { isAuthenticated, isAdmin, isRecruiter } = require("../middleware/auth");
 const {
   createJob,
   singleJob,
   updateJob,
-  showJobs,
   deleteJobs,
+} = require("../controllers/jobsController");
+const {
   updateStatus,
-  showJobsyByUser,
+  updateRecruiterApplicationStatus,
+} = require("../controllers/applicationStatusController");
+const {
+  recruiterAnalytics,
+} = require("../controllers/recruiterAnalyticsController");
+const {
+  scheduleRecruiterInterview,
+  rescheduleRecruiterInterview,
+  completeRecruiterInterview,
+} = require("../controllers/recruiterInterviewController");
+const {
   showAdminUserApplyJob,
   adminShowUserApplyJob,
+  getRecruiterApplications,
+  getRecruiterApplicationById,
+  getRecruiterApplicationResume,
+  getSuitableCandidatesForJob,
+} = require("../controllers/recruiterApplicationsController");
+const {
+  showJobs,
   showAllJobs,
-} = require("../controllers/jobsController");
+  showJobsyByUser,
+  getActivelyHiringCompanies,
+} = require("../controllers/jobSearchController");
+const {
+  generateRecruitmentEmail,
+  sendRecruitmentEmail,
+} = require("../controllers/recruiterEmailController");
 
 //job router
 
@@ -27,15 +51,86 @@ router.patch("/job/update/:job_id", isAuthenticated, isAdmin, updateJob);
 
 // /api/jobs/show
 router.get("/jobs/show/", showJobs);
+router.get("/companies/actively-hiring", getActivelyHiringCompanies);
 // /api/jobs/showalljobs
 router.get("/jobs/showalljobs", showAllJobs);
 
 // /api/jobs/show
 router.get("/jobs/showByUser/:id", showJobsyByUser);
+router.get(
+  "/recruiter/analytics",
+  isAuthenticated,
+  isAdmin,
+  recruiterAnalytics,
+);
+router.get(
+  "/recruiter/applications",
+  isAuthenticated,
+  isAdmin,
+  getRecruiterApplications,
+);
+router.post(
+  "/recruiter/email-generator/generate",
+  isAuthenticated,
+  isRecruiter,
+  generateRecruitmentEmail,
+);
+router.post(
+  "/recruiter/email-generator/send",
+  isAuthenticated,
+  isRecruiter,
+  sendRecruitmentEmail,
+);
+router.get(
+  "/recruiter/applications/:applicationId",
+  isAuthenticated,
+  isAdmin,
+  getRecruiterApplicationById,
+);
+router.get(
+  "/recruiter/jobs/:jobId/candidates",
+  isAuthenticated,
+  isAdmin,
+  getSuitableCandidatesForJob,
+);
+router.patch(
+  "/recruiter/applications/:applicationId/status",
+  isAuthenticated,
+  isAdmin,
+  updateRecruiterApplicationStatus,
+);
+router.post(
+  "/recruiter/applications/:applicationId/interview",
+  isAuthenticated,
+  isAdmin,
+  scheduleRecruiterInterview,
+);
+router.patch(
+  "/recruiter/applications/:applicationId/interview",
+  isAuthenticated,
+  isAdmin,
+  rescheduleRecruiterInterview,
+);
+router.patch(
+  "/recruiter/applications/:applicationId/interview/complete",
+  isAuthenticated,
+  isAdmin,
+  completeRecruiterInterview,
+);
+router.get(
+  "/recruiter/applications/:applicationId/resume",
+  isAuthenticated,
+  isAdmin,
+  getRecruiterApplicationResume,
+);
 // /api/jobs/userapply/:id
 router.get("/jobs/userapply/:id", showAdminUserApplyJob);
-router.get("/admin/applied-jobs/:id?", adminShowUserApplyJob);
-
+router.get(
+  "/admin/applied-jobs/:id?",
+  isAuthenticated,
+  isAdmin,
+  adminShowUserApplyJob,
+);
 // /api/jobs/delete
 router.delete("/jobs/delete/:id", isAuthenticated, isAdmin, deleteJobs);
 // /api/updatestatus/:id

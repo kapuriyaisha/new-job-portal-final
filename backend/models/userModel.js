@@ -36,13 +36,58 @@ const userSchema = new mongoose.Schema(
     },
     resume: {
       type: String,
-      required: [function () {
-        return Number(this.role) === 0;
-      }, "A user must upload resume"],
+      required: [
+        function () {
+          return Number(this.role) === 0;
+        },
+        "A user must upload resume",
+      ],
+    },
+    phoneNumber: {
+      type: String,
+      trim: true,
+    },
+    education: {
+      type: String,
+      trim: true,
+    },
+    skills: {
+      type: String,
+      trim: true,
+    },
+    experience: {
+      type: String,
+      trim: true,
+    },
+    profileInformation: {
+      type: String,
+      trim: true,
+    },
+    contactDetails: {
+      type: String,
+      trim: true,
     },
     profilePhoto: {
       type: String,
       required: [true, "A user must have profile photo"],
+    },
+    // companyName — optional, stored on recruiter accounts
+    companyName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    // companyWebsite — optional URL for the recruiter's company
+    companyWebsite: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    // companyAddress — optional physical address / location for the company
+    companyAddress: {
+      type: String,
+      trim: true,
+      default: "",
     },
     jobsHistory: [{ type: ObjectId, ref: "UserHistory" }],
     role: {
@@ -53,6 +98,39 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Soft-disable without permanent deletion. false = deactivated (cannot log in).
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    // Recruiter-only: pending | verified | rejected
+    verificationStatus: {
+      type: String,
+      enum: ["pending", "verified", "rejected"],
+      default: "pending",
+    },
+    // Email verification (registration code). Accounts created before this
+    // feature have no value here and are treated as verified.
+    isEmailVerified: {
+      type: Boolean,
+    },
+    emailVerificationCode: {
+      type: String,
+      select: false,
+    },
+    emailVerificationExpires: {
+      type: Date,
+      select: false,
+    },
+    emailVerificationAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+    emailVerificationSentAt: {
+      type: Date,
+      select: false,
+    },
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
@@ -61,10 +139,12 @@ const userSchema = new mongoose.Schema(
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
     timestamps: true,
-  }
+  },
 );
 
 userSchema.pre("save", async function (next) {
+  this.role = Number(this.role ?? 0);
+
   // Only run this function if password was actually modified
   if (!this.isModified("password")) return next();
 
@@ -90,7 +170,7 @@ userSchema.methods.comparePassword = async function (enteredPassword) {
 // return JWT token
 userSchema.methods.getJwtToken = function () {
   return jwt.sign({ id: this.id }, process.env.JWT_SECRET, {
-    expiresIn: 3600,
+    expiresIn: process.env.JWT_EXPIRE_IN || "7d",
   });
 };
 

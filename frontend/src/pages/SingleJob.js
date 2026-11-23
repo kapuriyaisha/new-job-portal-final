@@ -1,10 +1,15 @@
 import {
   Card,
   CardContent,
+  Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Stack,
   TextField,
   Typography,
@@ -18,8 +23,24 @@ import LoadingBox from "../component/LoadingBox";
 import Navbar from "../component/Navbar";
 import { jobLoadSingleAction } from "../redux/actions/jobAction";
 import Button from "@mui/material/Button";
-import { userApplyJobAction } from "../redux/actions/userAction";
+import {
+  userApplyJobAction,
+  userSubmitReportAction,
+} from "../redux/actions/userAction";
 import { Avatar, IconButton, Tooltip, useTheme } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
+import SaveJobButton from "../component/SaveJobButton";
+import { savedJobsLoadAction } from "../redux/actions/savedJobAction";
+
+const REPORT_REASONS = [
+  { value: "spam", label: "Spam" },
+  { value: "fake_job", label: "Fake Job" },
+  { value: "inappropriate_content", label: "Inappropriate Content" },
+  { value: "misleading_info", label: "Misleading Information" },
+  { value: "scam", label: "Scam" },
+  { value: "other", label: "Other" },
+];
 
 const SingleJob = () => {
   const dispatch = useDispatch();
@@ -35,15 +56,51 @@ const SingleJob = () => {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
+  // Report dialog state
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const { loading: reportLoading } = useSelector(
+    (state) => state.userSubmitReport,
+  );
+
+  const handleReportSubmit = () => {
+    if (!reportReason) return;
+    dispatch(
+      userSubmitReportAction({
+        jobId: singleJob._id,
+        reason: reportReason,
+        details: reportDetails,
+      }),
+    );
+    setReportOpen(false);
+    setReportReason("");
+    setReportDetails("");
+  };
+
   const { id } = useParams();
 
   const handleClose = () => {
     setOpen(false);
   };
 
+  const handleBack = () => {
+    if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/jobs");
+    }
+  };
+
   useEffect(() => {
     dispatch(jobLoadSingleAction(id));
   }, [dispatch, id]);
+
+  useEffect(() => {
+    if (userInfo && Number(userInfo.role?.role ?? userInfo?.role ?? 0) === 0) {
+      dispatch(savedJobsLoadAction(userInfo.role?._id || userInfo?._id));
+    }
+  }, [dispatch, userInfo]);
 
   const onSubmitHandler = (e) => {
     e.preventDefault();
@@ -70,7 +127,7 @@ const SingleJob = () => {
     }));
   };
 
-  const isRecruiter = userInfo?.role?.role === 1;
+  const isRecruiter = Number(userInfo?.role?.role ?? userInfo?.role ?? 0) === 1;
   const isOwner = singleJob
     ? String(singleJob.user?._id || singleJob.user) ===
       String(userInfo?.role?._id)
@@ -111,13 +168,42 @@ const SingleJob = () => {
                     }}
                   >
                     <CardContent>
-                      <Typography
-                        variant="h5"
-                        component="h2"
-                        sx={{ fontWeight: 700 }}
+                      <Button
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={handleBack}
+                        sx={{
+                          mb: "12px",
+                          color: "#2196F3",
+                          borderColor: "#2196F3",
+                          borderRadius: "10px",
+                          opacity: 1,
+                          "&:hover": {
+                            bgcolor: "#E3F2FD",
+                            color: "#2196F3",
+                            borderColor: "#2196F3",
+                            opacity: 1,
+                          },
+                        }}
                       >
-                        {singleJob && singleJob.title}
-                      </Typography>
+                        Back
+                      </Button>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography
+                          variant="h5"
+                          component="h2"
+                          sx={{ fontWeight: 700 }}
+                        >
+                          {singleJob && singleJob.title}
+                        </Typography>
+                        {singleJob && <SaveJobButton jobId={singleJob._id} />}
+                      </Box>
 
                       <Typography
                         variant="subtitle1"
@@ -129,7 +215,13 @@ const SingleJob = () => {
                       >
                         {singleJob && singleJob.companyName}
                       </Typography>
-                      <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          mb: 2,
+                        }}
+                      >
                         <Tooltip title="Company logo">
                           <IconButton sx={{ p: 0 }}>
                             <Avatar
@@ -153,6 +245,18 @@ const SingleJob = () => {
                       >
                         Location: {singleJob && singleJob.location}
                       </Typography>
+
+                      {singleJob?.applicationDeadline && (
+                        <Typography
+                          variant="body1"
+                          sx={{ fontWeight: 600, fontSize: "16px", mt: 1 }}
+                        >
+                          Application Deadline:{" "}
+                          {new Date(singleJob.applicationDeadline)
+                            .toISOString()
+                            .slice(0, 10)}
+                        </Typography>
+                      )}
 
                       <Typography variant="body2" sx={{ mt: 2 }}>
                         <Box
@@ -192,6 +296,7 @@ const SingleJob = () => {
                     </CardContent>
                   </Card>
                 )}
+
                 <br />
                 {showForm && canApply && (
                   <>
@@ -264,26 +369,105 @@ const SingleJob = () => {
               </Box>
               <Box sx={{ flex: 1, p: 2 }}>
                 <Card sx={{ p: 2 }}>
-                {canApply ? (
-                  <Button
-                    onClick={applyForAJob}
-                    sx={{ fontSize: "13px" }}
-                    variant="contained"
-                  >
-                    Apply for this Job
-                  </Button>
-                ) : (
-                  <Button sx={{ fontSize: "13px" }} variant="contained" disabled>
-                    {userInfo ? (isOwner ? "Owner cannot apply" : "Recruiters cannot apply") : "Login to apply"}
-                  </Button>
-                )}
-              </Card>
+                  {canApply ? (
+                    <Button
+                      onClick={applyForAJob}
+                      sx={{ fontSize: "13px" }}
+                      variant="contained"
+                    >
+                      Apply for this Job
+                    </Button>
+                  ) : (
+                    <Button
+                      sx={{ fontSize: "13px" }}
+                      variant="contained"
+                      disabled
+                    >
+                      {userInfo
+                        ? isOwner
+                          ? "Owner cannot apply"
+                          : "Recruiters cannot apply"
+                        : "Login to apply"}
+                    </Button>
+                  )}
+
+                  {/* Report button — shown to logged-in regular users only */}
+                  {userInfo &&
+                    Number(userInfo?.role?.role ?? userInfo?.role ?? 0) ===
+                      0 && (
+                      <Button
+                        onClick={() => setReportOpen(true)}
+                        sx={{ fontSize: "13px", mt: 1 }}
+                        variant="outlined"
+                        color="warning"
+                        startIcon={<FlagOutlinedIcon />}
+                        fullWidth
+                      >
+                        Report Job
+                      </Button>
+                    )}
+                </Card>
               </Box>
             </Stack>
           </Container>
         </Box>
         <Footer />
       </Box>
+
+      {/* ── Report job dialog ─────────────────────────────────────────── */}
+      <Dialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Report This Job</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Tell us why you think this job is suspicious or inappropriate. Our
+            admin team will review it.
+          </DialogContentText>
+
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>Reason *</InputLabel>
+            <Select
+              value={reportReason}
+              label="Reason *"
+              onChange={(e) => setReportReason(e.target.value)}
+            >
+              {REPORT_REASONS.map((r) => (
+                <MenuItem key={r.value} value={r.value}>
+                  {r.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            label="Additional details (optional)"
+            multiline
+            rows={3}
+            fullWidth
+            size="small"
+            value={reportDetails}
+            onChange={(e) => setReportDetails(e.target.value)}
+            inputProps={{ maxLength: 1000 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReportOpen(false)} disabled={reportLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleReportSubmit}
+            variant="contained"
+            color="warning"
+            disabled={!reportReason || reportLoading}
+          >
+            {reportLoading ? "Submitting…" : "Submit Report"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 };

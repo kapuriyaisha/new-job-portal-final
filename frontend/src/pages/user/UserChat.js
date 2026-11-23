@@ -1,57 +1,90 @@
 import { CometChat } from "@cometchat-pro/chat";
-import React, { useEffect } from "react";
+import axios from "axios";
+import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { CometChatUI } from "../../cometchat-pro-react-ui-kit/CometChatWorkspace/src/components/CometChatUI";
+import { UIKitSettings } from "../../cometchat-pro-react-ui-kit/CometChatWorkspace/src/util/UIKitSettings";
+
+// Wrapper: sets UIKitSettings._defaultUserListMode before CometChatUI mounts
+// and clears it on unmount so other chat pages are unaffected.
+const UIKitSettingsScope = ({ mode, children }) => {
+  UIKitSettings._defaultUserListMode = mode;
+  useEffect(() => () => { UIKitSettings._defaultUserListMode = null; }, []);
+  return children;
+};
 
 const UserChat = () => {
-  const extractUsername = (email) => {
-    const atIndex = email.indexOf("@");
-    if (atIndex !== -1) {
-      const username = email.substring(0, atIndex);
-      return username;
-    }
-    return null;
-  };
   const { userInfo } = useSelector((state) => state.signIn);
+  const [chatReady, setChatReady] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   useEffect(() => {
-    if (userInfo) {
-      let authKey = "e63ce563417fcafa1de6187962db3eb3f80c240b";
-      var uid = extractUsername(userInfo.role.email);
-      var name = userInfo.role.firstName;
-      console.log();
+    let cancelled = false;
 
-      console.log(uid);
+    const loginToChat = async () => {
+      if (!userInfo) return;
 
-      var user = new CometChat.User(uid);
-      console.log(uid);
-      user.setName(name);
-      CometChat.createUser(user, authKey).then(
-        (user) => {
-          console.log("user created", user);
-        },
-        (error) => {
-          console.log("error", error);
+      try {
+        if (!CometChat.isInitialized()) {
+          throw new Error("Chat service is still initializing. Refresh and try again.");
         }
-      );
 
-      CometChat.login(uid, authKey).then(
-        (user) => {
-          console.log("Login Successful:", { user });
-        },
-        (error) => {
-          console.log("Login failed with exception:", { error });
+        const { data } = await axios.post(
+          "/api/chat/provision",
+          {},
+          { withCredentials: true },
+        );
+        if (!data?.uid || !data?.authToken) {
+          throw new Error("The chat service returned invalid login details.");
         }
-      );
-    }
+
+        // Log out any different CometChat session open in this browser tab.
+        const loggedInUser = await CometChat.getLoggedinUser().catch(() => null);
+        if (loggedInUser && loggedInUser.getUid() !== data.uid) {
+          await CometChat.logout();
+        }
+
+        if (!loggedInUser || loggedInUser.getUid() !== data.uid) {
+          await CometChat.login(data.authToken);
+        }
+
+        if (!cancelled) setChatReady(true);
+      } catch (err) {
+        if (!cancelled) {
+          setChatError(
+            err?.response?.data?.error || err?.message || "Unable to connect to chat.",
+          );
+        }
+      }
+    };
+
+    loginToChat();
+    return () => { cancelled = true; };
   }, [userInfo]);
+
   return (
-    <>
-      {" "}
-      <div style={{ width: "84vw", height: "800px", marginTop: "25px" }}>
-        <CometChatUI />
-      </div>
-    </>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        height: "800px",
+        marginTop: "25px",
+      }}
+    >
+      {chatError && (
+        <p style={{ color: "red", padding: "16px" }}>{chatError}</p>
+      )}
+      {!chatError && !chatReady && (
+        <p style={{ padding: "16px" }}>Connecting to chat…</p>
+      )}
+      {chatReady && (
+        <UIKitSettingsScope mode={UIKitSettings.userListFilterOptions.ALL}>
+          <CometChatUI />
+        </UIKitSettingsScope>
+      )}
+    </div>
   );
 };
 

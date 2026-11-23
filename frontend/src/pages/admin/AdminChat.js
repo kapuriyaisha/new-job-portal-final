@@ -1,62 +1,78 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { CometChatUI } from "../../cometchat-pro-react-ui-kit/CometChatWorkspace/src/components/CometChatUI";
 import { CometChat } from "@cometchat-pro/chat";
+import axios from "axios";
 import { useSelector } from "react-redux";
 
 const AdminChat = () => {
-  const extractUsername = (email) => {
-    const atIndex = email.indexOf("@");
-    if (atIndex !== -1) {
-      const username = email.substring(0, atIndex);
-      return username;
-    }
-    return null;
-  };
+  const [chatReady, setChatReady] = useState(false);
+  const [chatError, setChatError] = useState("");
   const { userInfo } = useSelector((state) => state.signIn);
+
   useEffect(() => {
-    if (userInfo) {
-      let authKey = "e63ce563417fcafa1de6187962db3eb3f80c240b";
-      var uid = extractUsername(userInfo.role.email);
-      var name = userInfo.role.firstName;
+    let cancelled = false;
 
-      console.log(uid);
-      console.log(name);
+    const loginToChat = async () => {
+      if (!userInfo) return;
 
-      var user = new CometChat.User(uid);
-      console.log(uid);
-      user.setName(name);
-      CometChat.createUser(user, authKey).then(
-        (user) => {
-          console.log("user created", user);
-        },
-        (error) => {
-          console.log("error", error);
+      try {
+        if (!CometChat.isInitialized()) {
+          throw new Error("Chat service is still initializing. Refresh and try again.");
         }
-      );
 
-      CometChat.login(uid, authKey).then(
-        (user) => {
-          console.log("Login Successful:", { user });
-        },
-        (error) => {
-          console.log("Login failed with exception:", { error });
+        const { data } = await axios.post(
+          "/api/chat/provision",
+          {},
+          { withCredentials: true },
+        );
+        if (!data?.uid || !data?.authToken) {
+          throw new Error("The chat service returned invalid login details.");
         }
-      );
-    }
+
+        // Log out any different CometChat session open in this browser tab.
+        const loggedInUser = await CometChat.getLoggedinUser().catch(() => null);
+        if (loggedInUser && loggedInUser.getUid() !== data.uid) {
+          await CometChat.logout();
+        }
+
+        if (!loggedInUser || loggedInUser.getUid() !== data.uid) {
+          await CometChat.login(data.authToken);
+        }
+
+        if (!cancelled) setChatReady(true);
+      } catch (error) {
+        if (!cancelled) {
+          setChatError(
+            error?.response?.data?.error ||
+              error?.message ||
+              "Unable to connect to chat.",
+          );
+        }
+      }
+    };
+
+    loginToChat();
+    return () => { cancelled = true; };
   }, [userInfo]);
+
   return (
-    <>
-      <div
-        style={{
-          width: "84vw",
-          height: "700px",
-          marginTop: "25px",
-          backgroundColor: "#F2F2F2",
-        }}
-      >
-        <CometChatUI />
-      </div>
-    </>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        height: "700px",
+        marginTop: "25px",
+        backgroundColor: "#F2F2F2",
+      }}
+    >
+      {chatError && <p style={{ color: "red", padding: "16px" }}>{chatError}</p>}
+      {!chatError && !chatReady && (
+        <p style={{ padding: "16px" }}>Connecting to chat...</p>
+      )}
+      {chatReady && <CometChatUI />}
+    </div>
   );
 };
 
